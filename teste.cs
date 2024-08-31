@@ -1,74 +1,57 @@
+using AutoMapper;
+using Xunit;
 
-
-public class GlobalExceptionHandlingTests
+public class MappingTests
 {
-    private readonly Mock<ILogger<GlobalExceptionHandling>> _mockLogger;
-    private readonly GlobalExceptionHandling _middleware;
-    private readonly DefaultHttpContext _httpContext;
-    private readonly RequestDelegate _next;
+    private readonly IMapper _mapper;
+    private readonly MapperConfiguration _configuration;
 
-    public GlobalExceptionHandlingTests()
+    public MappingTests()
     {
-        _mockLogger = new Mock<ILogger<GlobalExceptionHandling>>();
-        _middleware = new GlobalExceptionHandling(_mockLogger.Object);
-        _httpContext = new DefaultHttpContext();
-        _next = (HttpContext) => Task.CompletedTask;
+        _configuration = new MapperConfiguration(cfg =>
+        {
+            cfg.AddProfile<MappingProfile>();
+        });
+
+        _mapper = _configuration.CreateMapper();
     }
 
-    [Fact(DisplayName = "Deve retornar sucesso ao invocar a middleware GlobalExceptionHandling")]
-    public async Task InvokeAsync_NoException_With_Success()
+    [Fact]
+    public void MappingConfiguration_IsValid()
     {
-        await _middleware.InvokeAsync(_httpContext, _next);
-        Assert.Equal((int)HttpStatusCode.OK, _httpContext.Response.StatusCode);
+        // Verifica se a configuração do mapeamento é válida
+        _configuration.AssertConfigurationIsValid();
     }
 
-    [Fact(DisplayName = "Deve retornar badRequest ao invocar middleware")]
-    public async Task InvokeAsync_Throw_Custom_GlobalException()
+    [Fact]
+    public void Should_Map_Source_To_Destination()
     {
-        var expectedException = new GlobalException(HttpStatusCode.BadRequest, "Test Global Exception");
+        // Arrange
+        var source = new Source { Id = 1, Name = "Test" };
 
-        var next = new RequestDelegate((context) => throw expectedException);
+        // Act
+        var destination = _mapper.Map<Destination>(source);
 
-        _httpContext.Response.Body = new MemoryStream();
-
-        await _middleware.InvokeAsync(_httpContext, next);
-
-        _httpContext.Response.Body.Seek(0, SeekOrigin.Begin);
-
-        var responseBody = new StreamReader(_httpContext.Response.Body).ReadToEnd();
-
-        Assert.Contains(expectedException.Message, responseBody);
-        Assert.Equal((int)HttpStatusCode.BadRequest, _httpContext.Response.StatusCode);
+        // Assert
+        Assert.Equal(source.Id, destination.Id);
+        Assert.Equal(source.Name, destination.Name);
     }
+}
 
-    [Fact(DisplayName = "Deve disparar badRequest invocar GlobalException.When")]
-    public void InvokeAsync_Throw_Custom_GlobalException_When()
+// Classes de exemplo
+public class Source : IMapFrom<Destination>
+{
+    public int Id { get; set; }
+    public string Name { get; set; }
+
+    public void Mapping(Profile profile)
     {
-        var result = 
-            Assert.ThrowsAny<GlobalException>(() => 
-                GlobalException.When(true,
-                                     "Teste validar When",
-                                     HttpStatusCode.BadRequest)
-            );
-
-        Assert.Equal(HttpStatusCode.BadRequest, result.StatusCode);
-        Assert.Equal("Teste validar When", result.Message);
+        profile.CreateMap<Source, Destination>();
     }
+}
 
-    [Fact(DisplayName = "Ao disparar uma exception a middleware deve retornar com sucesso a mensagem de erro")]
-    public async Task InvokeAsync_Throw_Exception_InternalServerError()
-    {
-        var expectedException = new Exception("Test Exception");
-
-        var next = new RequestDelegate((context) => throw expectedException);
-
-        _httpContext.Response.Body = new MemoryStream();
-
-        await _middleware.InvokeAsync(_httpContext, next);
-
-        _httpContext.Response.Body.Seek(0, SeekOrigin.Begin);
-
-        var responseBody = new StreamReader(_httpContext.Response.Body).ReadToEnd();
-        Assert.Contains("An internal server has occurred", responseBody);
-        Assert.Equal((int)HttpStatusCode.InternalServerError, _httpContext.Response.StatusCode);
-    }
+public class Destination
+{
+    public int Id { get; set; }
+    public string Name { get; set; }
+}
