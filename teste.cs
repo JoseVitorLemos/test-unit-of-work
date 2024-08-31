@@ -1,99 +1,44 @@
-using Gym.Data.Repositories;
-using Gym.Data.DatabaseContext;
-using Microsoft.EntityFrameworkCore;
-using Gym.Domain.Entities;
+using System.Net;
+using System.Text.Json;
+using Gym.Helpers.Enums;
+using Gym.Helpers.Exceptions;
+using Gym.Helpers.Utils;
+using Gym.Presentation.Controllers;
+using Microsoft.AspNetCore.Components.Routing;
 
-namespace Gym.Tests.Gym.Data.RepositoryTest;
+namespace Gym.Presentation.Middlewares;
 
-public class RepositoryTests : IDisposable
+public class GlobalExceptionHandling : IMiddleware
 {
-    private readonly DataContext _context;
-    private readonly Repository<TiposCalculo> _repository;
-    private readonly List<TiposCalculo> _tiposCalculos;
+    private readonly ILogger<GlobalExceptionHandling> _logger;
 
-    public RepositoryTests()
+    public GlobalExceptionHandling(ILogger<GlobalExceptionHandling> logger)
+        => _logger = logger;
+
+    public async Task InvokeAsync(HttpContext context, RequestDelegate next)
     {
-        // Configura o DbContext para usar o banco de dados In-Memory
-        var options = new DbContextOptionsBuilder<DataContext>()
-            .UseInMemoryDatabase(databaseName: "TestDatabase")
-            .Options;
+        try
+        {
+            await next(context);
+        }
+        catch (GlobalException e)
+        {
+            context.Response.StatusCode = (int)e.StatusCode;
+            context.Response.ContentType = "application/json";
 
-        _context = new DataContext(options);
-        _repository = new Repository<TiposCalculo>(_context);
+            var errorResponse = new GlobalHttpResponse((int)e.StatusCode, e.Message);
+            await context.Response.WriteAsync(JsonSerializer.Serialize(errorResponse));
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, e.Message);
 
-        _tiposCalculos = new List<TiposCalculo>
-            {
-                new () { CodigoTipoCalculo = 1, NomeTipoCalculo = "any" },
-                new () { CodigoTipoCalculo = 2, NomeTipoCalculo = "any" }
-            };
-    }
+            var errorResponse = new GlobalHttpResponse((int)HttpStatusCodes.InternalServerError,
+                    "An internal server has occurred");
 
-    public void Dispose()
-    {
-        _context.Database.EnsureDeleted();
-    }
-
-    [Fact]
-    public async Task AddAsync_ShouldAddEntity()
-    {
-        // Arrange
-        var entity = _tiposCalculos.First();
-
-        // Act
-        await _repository.AddAsync(entity);
-
-        // Assert
-        var result = await _repository.GetAllAsync();
-        Assert.Single(result);
-        Assert.Equal(entity.CodigoTipoCalculo, result.First().CodigoTipoCalculo);
-        Assert.Equal(entity.NomeTipoCalculo, result.First().NomeTipoCalculo);
-        Assert.Equal(entity.Ativo, result.First().Ativo);
-    }
-
-    [Fact]
-    public async Task GetAllAsync_ShouldReturnAllEntities()
-    {
-        _context.Set<TiposCalculo>().AddRange(_tiposCalculos);
-        await _context.SaveChangesAsync();
-
-        // Act
-        var result = await _repository.GetAllAsync();
-
-        // Assert
-        Assert.Equal(2, result.Count());
-    }
-
-    [Fact]
-    public async Task GetByIdAsync_ShouldReturnEntity()
-    {
-        // Arrange
-        var entity = _tiposCalculos.First();
-        await _context.Set<TiposCalculo>().AddAsync(entity);
-        await _context.SaveChangesAsync();
-
-        // Act
-        var result = await _repository.GetByIdAsync(1);
-
-        // Assert
-        Assert.NotNull(result);
-        Assert.Equal(entity.CodigoTipoCalculo, result.CodigoTipoCalculo);
-        Assert.Equal(entity.NomeTipoCalculo, result.NomeTipoCalculo);
-        Assert.Equal(entity.Ativo, result.Ativo);
-    }
-
-    [Fact]
-    public async Task DeleteAsync_ShouldRemoveEntity()
-    {
-        // Arrange
-        var entity = _tiposCalculos.First();
-        await _context.Set<TiposCalculo>().AddAsync(entity);
-        await _context.SaveChangesAsync();
-
-        // Act
-        var result = await _repository.DeleteAsync(entity);
-
-        // Assert
-        Assert.True(result);
-        Assert.Empty(await _repository.GetAllAsync());
+            context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(JsonSerializer.Serialize(errorResponse));
+        }
     }
 }
